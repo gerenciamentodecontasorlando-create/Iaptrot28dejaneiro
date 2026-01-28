@@ -1,7 +1,6 @@
 import { dbPut, dbGetAll, dbDelete, dbClear, newId, exportAll, importAll } from "./db.js";
 
 const $ = (id) => document.getElementById(id);
-
 const statusLine = $("statusLine");
 const btnInstall = $("btnInstall");
 
@@ -33,7 +32,11 @@ function monthLabel(year, monthIndex){
   const dt = new Date(year, monthIndex, 1);
   return dt.toLocaleDateString("pt-BR", { month:"long", year:"numeric" });
 }
-
+function escapeHtml(s=""){
+  return s.replace(/[&<>"']/g, (m) => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[m]));
+}
 function downloadFile(filename, content, type="application/json"){
   const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
@@ -44,59 +47,49 @@ function downloadFile(filename, content, type="application/json"){
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
 
-async function bootDemoIfEmpty(){
-  const patients = await dbGetAll("patients");
-  if (patients.length) return;
+/* ==================== DADOS ==================== */
+let patients = [];
+let appointments = [];
+let records = [];
 
-  // DEMO simples (você já pode editar/apagar pelo gerenciar)
+async function bootDemoIfEmpty(){
+  const ps = await dbGetAll("patients");
+  if (ps.length) return;
   const p1 = { id:newId(), name:"Paciente Teste", phone:"(91) 99999-0000", dob:"", doc:"", createdAt: new Date().toISOString() };
   await dbPut("patients", p1);
-
   const today = ymd(new Date());
   const a1 = { id:newId(), date: today, time:"09:00", patientId:p1.id, status:"Confirmado", note:"Consulta teste", createdAt:new Date().toISOString() };
   await dbPut("appointments", a1);
+  const r1 = { id:newId(), patientId:p1.id, date: today, S:"Teste de prontuário", O:"-", A:"-", P:"-", createdAt:new Date().toISOString() };
+  await dbPut("records", r1);
 }
-
-/* ------------------ DADOS EM MEMÓRIA ------------------ */
-let patients = [];
-let appointments = [];
 
 async function loadAll(){
   patients = await dbGetAll("patients");
   appointments = await dbGetAll("appointments");
+  records = await dbGetAll("records");
+
   patients.sort((a,b) => (a.name||"").localeCompare(b.name||"", "pt-BR"));
   appointments.sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time));
+  records.sort((a,b) => (b.date+b.createdAt).localeCompare(a.date+a.createdAt));
 }
 
-/* ------------------ UI: SELECTS ------------------ */
 function fillPatientSelects(){
-  const selPatient = $("selPatient");
-  const rxPatient = $("rxPatient");
-
   const opts = [`<option value="">— Selecione —</option>`]
     .concat(patients.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`));
 
-  selPatient.innerHTML = opts.join("");
-  rxPatient.innerHTML = opts.join("");
+  $("selPatient").innerHTML = opts.join("");
+  $("rxPatient").innerHTML = opts.join("");
+  $("recPatient").innerHTML = opts.join("");
 
-  // se não tiver paciente, dá um toque
-  if (!patients.length){
-    statusLine.textContent = "Crie pelo menos 1 paciente para agendar e gerar receita.";
-  } else {
-    statusLine.textContent = "Offline-first • Memória local (IndexedDB) • Imprimir receita";
-  }
+  statusLine.textContent = patients.length
+    ? "Offline-first • Memória local (IndexedDB) • PDF/Impressão"
+    : "Crie pelo menos 1 paciente para agendar, receitar e registrar prontuário.";
 }
 
-function escapeHtml(s=""){
-  return s.replace(/[&<>"']/g, (m) => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-  }[m]));
-}
-
-/* ------------------ CALENDÁRIO ------------------ */
+/* ==================== CALENDÁRIO / AGENDA ==================== */
 const dowNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
-const dowRow = $("dowRow");
-dowRow.innerHTML = dowNames.map(d => `<div class="dow">${d}</div>`).join("");
+$("dowRow").innerHTML = dowNames.map(d => `<div class="dow">${d}</div>`).join("");
 
 let viewYear = new Date().getFullYear();
 let viewMonth = new Date().getMonth();
@@ -131,22 +124,18 @@ function renderCalendar(){
   const first = new Date(viewYear, viewMonth, 1);
   const startDow = first.getDay();
   const daysInMonth = new Date(viewYear, viewMonth+1, 0).getDate();
-
-  // dias do mês anterior pra completar a grade
   const prevDays = new Date(viewYear, viewMonth, 0).getDate();
 
   const cells = [];
   for (let i=0; i<startDow; i++){
     const dayNum = prevDays - (startDow-1-i);
     const dt = new Date(viewYear, viewMonth-1, dayNum);
-    const d = ymd(dt);
-    cells.push({ label: dayNum, ymd:d, off:true });
+    cells.push({ label: dayNum, ymd: ymd(dt), off:true });
   }
   for (let d=1; d<=daysInMonth; d++){
     const dt = new Date(viewYear, viewMonth, d);
     cells.push({ label:d, ymd: ymd(dt), off:false });
   }
-  // completa até múltiplo de 7
   while (cells.length % 7 !== 0){
     const last = cells[cells.length-1];
     const dt = new Date(last.ymd);
@@ -203,21 +192,17 @@ function renderDay(){
     </div>`;
   }).join("");
 
-  // binds
-  [...list.querySelectorAll("[data-del]")].forEach(btn => {
+  list.querySelectorAll("[data-del]").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const id = btn.dataset.del;
-      await dbDelete("appointments", id);
+      await dbDelete("appointments", btn.dataset.del);
       await loadAll();
-      renderCalendar();
-      renderDay();
+      renderCalendar(); renderDay();
     });
   });
 
-  [...list.querySelectorAll("[data-edit]")].forEach(btn => {
+  list.querySelectorAll("[data-edit]").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const id = btn.dataset.edit;
-      const a = appointments.find(x => x.id === id);
+      const a = appointments.find(x => x.id === btn.dataset.edit);
       if (!a) return;
 
       $("selPatient").value = a.patientId || "";
@@ -225,55 +210,38 @@ function renderDay(){
       $("apptStatus").value = a.status || "Confirmado";
       $("apptNote").value = a.note || "";
 
-      // ao salvar, a gente atualiza o mesmo ID
-      $("btnAddAppt").dataset.editing = id;
+      $("btnAddAppt").dataset.editing = a.id;
       $("btnAddAppt").textContent = "Atualizar agendamento";
     });
   });
 }
 
-/* ------------------ AÇÕES: AGENDA ------------------ */
 $("btnAddAppt").addEventListener("click", async () => {
   const patientId = $("selPatient").value;
   const time = $("apptTime").value || "";
   const status = $("apptStatus").value || "Confirmado";
   const note = $("apptNote").value || "";
 
-  if (!selectedDate){
-    alert("Selecione um dia no calendário.");
-    return;
-  }
-  if (!patientId){
-    alert("Selecione um paciente para agendar.");
-    return;
-  }
-  if (!time){
-    alert("Informe a hora.");
-    return;
-  }
+  if (!selectedDate) return alert("Selecione um dia no calendário.");
+  if (!patientId) return alert("Selecione um paciente para agendar.");
+  if (!time) return alert("Informe a hora.");
 
   const editingId = $("btnAddAppt").dataset.editing || "";
-
   const appt = {
     id: editingId || newId(),
     date: selectedDate,
-    time,
-    patientId,
-    status,
-    note,
+    time, patientId, status, note,
     createdAt: new Date().toISOString()
   };
 
   await dbPut("appointments", appt);
 
-  // reset modo edição
   delete $("btnAddAppt").dataset.editing;
   $("btnAddAppt").textContent = "Salvar agendamento";
   $("apptNote").value = "";
 
   await loadAll();
-  renderCalendar();
-  renderDay();
+  renderCalendar(); renderDay();
 });
 
 $("btnPrintDay").addEventListener("click", () => {
@@ -300,16 +268,13 @@ $("btnPrintDay").addEventListener("click", () => {
       }).join("<br/>") : "<i>Sem agendamentos.</i>"}
     </div>
   `;
-
   $("printPaper").innerHTML = html;
   window.print();
 });
 
-$("btnPdfDay").addEventListener("click", async () => {
-  if (!window.jspdf?.jsPDF){
-    alert("jsPDF não carregou. Verifique sua internet na primeira vez (depois cacheia).");
-    return;
-  }
+$("btnPdfDay").addEventListener("click", () => {
+  if (!window.jspdf?.jsPDF) return alert("jsPDF não carregou. Abra online 1x pra cachear e depois fica offline.");
+
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit:"pt", format:"a4" });
 
@@ -317,13 +282,10 @@ $("btnPdfDay").addEventListener("click", async () => {
     .filter(a => a.date === selectedDate)
     .sort((a,b) => (a.time||"").localeCompare(b.time||""));
 
-  const title = `Agenda do Dia — ${selectedDate}`;
-  doc.setFont("helvetica","bold");
-  doc.setFontSize(14);
-  doc.text(title, 40, 60);
+  doc.setFont("helvetica","bold"); doc.setFontSize(14);
+  doc.text(`Agenda do Dia — ${selectedDate}`, 40, 60);
 
-  doc.setFont("helvetica","normal");
-  doc.setFontSize(11);
+  doc.setFont("helvetica","normal"); doc.setFontSize(11);
   doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 40, 80);
 
   let y = 110;
@@ -340,156 +302,40 @@ $("btnPdfDay").addEventListener("click", async () => {
     for (const w of wrapped){
       doc.text(w, 40, y);
       y += 16;
-      if (y > maxY){
-        doc.addPage();
-        y = 60;
-      }
+      if (y > maxY){ doc.addPage(); y = 60; }
     }
   }
 
   doc.save(`agenda-${selectedDate}.pdf`);
 });
 
-/* ------------------ PACIENTES ------------------ */
+/* ==================== PACIENTES + MODAL ==================== */
 $("btnSavePatient").addEventListener("click", async () => {
   const name = ($("pName").value || "").trim();
   const phone = ($("pPhone").value || "").trim();
   const dob = $("pDob").value || "";
   const docId = ($("pDoc").value || "").trim();
-
-  if (!name){
-    alert("Informe o nome do paciente.");
-    return;
-  }
+  if (!name) return alert("Informe o nome do paciente.");
 
   const patient = { id:newId(), name, phone, dob, doc:docId, createdAt:new Date().toISOString() };
   await dbPut("patients", patient);
 
-  $("pName").value = "";
-  $("pPhone").value = "";
-  $("pDob").value = "";
-  $("pDoc").value = "";
+  $("pName").value = ""; $("pPhone").value = ""; $("pDob").value = ""; $("pDoc").value = "";
 
   await loadAll();
   fillPatientSelects();
-  renderDay();
+  renderCalendar(); renderDay();
+  renderRecordHistory();
+  renderRxPreview();
 });
 
-/* ------------------ RECEITA ------------------ */
-$("rxDate").value = ymd(new Date());
-
-function buildRxHTML(){
-  const patientId = $("rxPatient").value;
-  const rxDate = $("rxDate").value || ymd(new Date());
-  const text = ($("rxText").value || "").trim();
-
-  const p = patients.find(x=>x.id===patientId);
-  const pname = p ? p.name : "—";
-
-  // Aqui você pode mudar pra seus dados fixos depois (CRM/CRO etc.)
-  const profName = "BTX • Profissional";
-  const profInfo = "Dados do profissional (edite no código ou eu faço uma tela Settings depois)";
-
-  const body = text ? escapeHtml(text) : "<i>(Digite o texto da receita)</i>";
-
-  return `
-    <div class="p-head">
-      <div>
-        <h3>${escapeHtml(profName)}</h3>
-        <small>${escapeHtml(profInfo)}</small>
-      </div>
-      <div style="text-align:right">
-        <small><b>Data:</b> ${escapeHtml(rxDate)}<br/><b>Paciente:</b> ${escapeHtml(pname)}</small>
-      </div>
-    </div>
-    <div class="rx-title">RECEITA</div>
-    <div class="rx-body">${body}</div>
-    <div class="p-foot">
-      <div>Assinatura: ____________________________</div>
-      <div>Gerado em ${new Date().toLocaleString("pt-BR")}</div>
-    </div>
-  `;
-}
-
-$("btnPreviewRx").addEventListener("click", () => {
-  $("rxPreview").innerHTML = buildRxHTML();
-});
-$("btnPrintRx").addEventListener("click", () => {
-  $("printPaper").innerHTML = buildRxHTML();
-  window.print();
-});
-
-$("btnPdfRx").addEventListener("click", async () => {
-  if (!window.jspdf?.jsPDF){
-    alert("jsPDF não carregou. Verifique sua internet na primeira vez (depois cacheia).");
-    return;
-  }
-  const patientId = $("rxPatient").value;
-  const rxDate = $("rxDate").value || ymd(new Date());
-  const text = ($("rxText").value || "").trim();
-
-  if (!patientId){
-    alert("Selecione o paciente.");
-    return;
-  }
-  if (!text){
-    alert("Digite o texto da receita.");
-    return;
-  }
-
-  const p = patients.find(x=>x.id===patientId);
-  const pname = p ? p.name : "Paciente";
-
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit:"pt", format:"a4" });
-
-  // Cabeçalho
-  doc.setFont("helvetica","bold"); doc.setFontSize(14);
-  doc.text("RECEITA", 297, 70, { align:"center" });
-
-  doc.setFont("helvetica","normal"); doc.setFontSize(11);
-  doc.text(`Paciente: ${pname}`, 40, 100);
-  doc.text(`Data: ${rxDate}`, 40, 118);
-
-  // Corpo (com quebra correta + preserva espaçamento)
-  const lines = text.split("\n");
-  let y = 150;
-  const maxY = 780;
-
-  for (const raw of lines){
-    const line = raw.trimEnd();
-    if (!line){
-      y += 14; // linha em branco = espaço real no PDF
-      continue;
-    }
-    const wrapped = doc.splitTextToSize(line, 520);
-    for (const w of wrapped){
-      doc.text(w, 40, y);
-      y += 16;
-      if (y > maxY){
-        doc.addPage();
-        y = 60;
-      }
-    }
-  }
-
-  // Rodapé
-  doc.setFontSize(10);
-  doc.text("Assinatura: ________________________________", 40, 820);
-
-  doc.save(`receita-${pname}-${rxDate}.pdf`.replaceAll(" ","_"));
-});
-
-/* ------------------ MODAL: GERENCIAR PACIENTES ------------------ */
 const modalBack = $("modalBack");
 $("btnManagePatients").addEventListener("click", () => {
   modalBack.style.display = "flex";
   renderPatientManager();
 });
 $("btnCloseModal").addEventListener("click", () => modalBack.style.display = "none");
-modalBack.addEventListener("click", (e) => {
-  if (e.target === modalBack) modalBack.style.display = "none";
-});
+modalBack.addEventListener("click", (e) => { if (e.target === modalBack) modalBack.style.display = "none"; });
 $("pSearch").addEventListener("input", renderPatientManager);
 
 function renderPatientManager(){
@@ -512,35 +358,313 @@ function renderPatientManager(){
     </div>
   `).join("") || `<div class="hint">Nenhum paciente encontrado.</div>`;
 
-  [...list.querySelectorAll("[data-pdel]")].forEach(btn => {
+  list.querySelectorAll("[data-pdel]").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const id = btn.dataset.pdel;
-      await dbDelete("patients", id);
+      await dbDelete("patients", btn.dataset.pdel);
       await loadAll();
       fillPatientSelects();
-      renderCalendar();
-      renderDay();
+      renderCalendar(); renderDay();
       renderPatientManager();
+      renderRecordHistory();
+      renderRxPreview();
     });
   });
 }
 
 $("btnDeleteAllPatients").addEventListener("click", async () => {
-  if (!confirm("Apagar TODOS os pacientes? (agendamentos ficam no histórico)")) return;
+  if (!confirm("Apagar TODOS os pacientes? (agendamentos e prontuário ficam no histórico até você usar Limpar Tudo)")) return;
   await dbClear("patients");
   await loadAll();
   fillPatientSelects();
-  renderCalendar();
-  renderDay();
+  renderCalendar(); renderDay();
   renderPatientManager();
+  renderRecordHistory();
+  renderRxPreview();
 });
 
 $("btnExportPatients").addEventListener("click", () => {
-  const data = JSON.stringify({ exportedAt: new Date().toISOString(), patients }, null, 2);
-  downloadFile("pacientes-btx.json", data);
+  downloadFile("pacientes-btx.json", JSON.stringify({ exportedAt: new Date().toISOString(), patients }, null, 2));
 });
 
-/* ------------------ BACKUP / RESTORE / WIPE ------------------ */
+/* ==================== RECEITA ==================== */
+$("rxDate").value = ymd(new Date());
+
+function buildRxHTML(){
+  const patientId = $("rxPatient").value;
+  const rxDate = $("rxDate").value || ymd(new Date());
+  const text = ($("rxText").value || "").trim();
+  const p = patients.find(x=>x.id===patientId);
+  const pname = p ? p.name : "—";
+
+  // você troca depois por tela de Configurações (mas já funciona)
+  const profName = "BTX • Profissional";
+  const profInfo = "Dados do profissional (personalize depois)";
+
+  const body = text ? escapeHtml(text) : "<i>(Digite o texto da receita)</i>";
+
+  return `
+    <div class="p-head">
+      <div>
+        <h3>${escapeHtml(profName)}</h3>
+        <small>${escapeHtml(profInfo)}</small>
+      </div>
+      <div style="text-align:right">
+        <small><b>Data:</b> ${escapeHtml(rxDate)}<br/><b>Paciente:</b> ${escapeHtml(pname)}</small>
+      </div>
+    </div>
+    <div class="rx-title">RECEITA</div>
+    <div class="rx-body">${body}</div>
+    <div class="p-foot">
+      <div>Assinatura: ____________________________</div>
+      <div>Gerado em ${new Date().toLocaleString("pt-BR")}</div>
+    </div>
+  `;
+}
+
+function renderRxPreview(){
+  $("rxPreview").innerHTML = buildRxHTML();
+}
+
+$("btnPreviewRx").addEventListener("click", renderRxPreview);
+
+$("btnPrintRx").addEventListener("click", () => {
+  $("printPaper").innerHTML = buildRxHTML();
+  window.print();
+});
+
+$("btnPdfRx").addEventListener("click", () => {
+  if (!window.jspdf?.jsPDF) return alert("jsPDF não carregou. Abra online 1x pra cachear e depois fica offline.");
+
+  const patientId = $("rxPatient").value;
+  const rxDate = $("rxDate").value || ymd(new Date());
+  const text = ($("rxText").value || "").trim();
+
+  if (!patientId) return alert("Selecione o paciente.");
+  if (!text) return alert("Digite o texto da receita.");
+
+  const p = patients.find(x=>x.id===patientId);
+  const pname = p ? p.name : "Paciente";
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:"pt", format:"a4" });
+
+  doc.setFont("helvetica","bold"); doc.setFontSize(14);
+  doc.text("RECEITA", 297, 70, { align:"center" });
+
+  doc.setFont("helvetica","normal"); doc.setFontSize(11);
+  doc.text(`Paciente: ${pname}`, 40, 100);
+  doc.text(`Data: ${rxDate}`, 40, 118);
+
+  let y = 150;
+  const maxY = 780;
+
+  // preserva linhas em branco
+  const lines = text.split("\n");
+  for (const raw of lines){
+    const line = raw.trimEnd();
+    if (!line){
+      y += 14;
+      continue;
+    }
+    const wrapped = doc.splitTextToSize(line, 520);
+    for (const w of wrapped){
+      doc.text(w, 40, y);
+      y += 16;
+      if (y > maxY){ doc.addPage(); y = 60; }
+    }
+  }
+
+  doc.setFontSize(10);
+  doc.text("Assinatura: ________________________________", 40, 820);
+
+  doc.save(`receita-${pname}-${rxDate}.pdf`.replaceAll(" ","_"));
+});
+
+/* ==================== PRONTUÁRIO (SOAP) ==================== */
+$("recDate").value = ymd(new Date());
+
+function renderRecordHistory(){
+  const pid = $("recPatient").value || "";
+  const box = $("recordList");
+  const filtered = records
+    .filter(r => r.patientId === pid)
+    .sort((a,b)=> (b.date+b.createdAt).localeCompare(a.date+a.createdAt))
+    .slice(0, 10);
+
+  box.innerHTML = filtered.map(r => `
+    <div class="item">
+      <div style="flex:1">
+        <b>${escapeHtml(r.date)} <span class="pill">SOAP</span></b>
+        <small><b>S:</b> ${escapeHtml((r.S||"").slice(0,120))}${(r.S||"").length>120?"…":""}</small>
+        <small><b>A:</b> ${escapeHtml((r.A||"").slice(0,120))}${(r.A||"").length>120?"…":""}</small>
+      </div>
+      <div class="mini-btns">
+        <button class="btn" data-rload="${r.id}">Abrir</button>
+        <button class="btn-bad" data-rdel="${r.id}">Apagar</button>
+      </div>
+    </div>
+  `).join("") || `<div class="hint">Sem evoluções ainda para esse paciente.</div>`;
+
+  box.querySelectorAll("[data-rdel]").forEach(btn=>{
+    btn.addEventListener("click", async ()=>{
+      await dbDelete("records", btn.dataset.rdel);
+      await loadAll();
+      renderRecordHistory();
+    });
+  });
+
+  box.querySelectorAll("[data-rload]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const r = records.find(x=>x.id===btn.dataset.rload);
+      if (!r) return;
+      $("recDate").value = r.date || ymd(new Date());
+      $("recS").value = r.S || "";
+      $("recO").value = r.O || "";
+      $("recA").value = r.A || "";
+      $("recP").value = r.P || "";
+      $("btnSaveRecord").dataset.editing = r.id;
+      $("btnSaveRecord").textContent = "Atualizar evolução";
+    });
+  });
+}
+
+$("btnLoadPatientHistory").addEventListener("click", renderRecordHistory);
+$("recPatient").addEventListener("change", renderRecordHistory);
+
+$("btnSaveRecord").addEventListener("click", async ()=>{
+  const pid = $("recPatient").value;
+  const date = $("recDate").value || ymd(new Date());
+  if (!pid) return alert("Selecione o paciente.");
+
+  const editingId = $("btnSaveRecord").dataset.editing || "";
+
+  const rec = {
+    id: editingId || newId(),
+    patientId: pid,
+    date,
+    S: $("recS").value || "",
+    O: $("recO").value || "",
+    A: $("recA").value || "",
+    P: $("recP").value || "",
+    createdAt: new Date().toISOString()
+  };
+
+  await dbPut("records", rec);
+  delete $("btnSaveRecord").dataset.editing;
+  $("btnSaveRecord").textContent = "Salvar evolução";
+
+  await loadAll();
+  renderRecordHistory();
+  alert("Evolução salva.");
+});
+
+function buildRecordPaperHTML(){
+  const pid = $("recPatient").value || "";
+  const date = $("recDate").value || ymd(new Date());
+  const p = patients.find(x=>x.id===pid);
+  const pname = p ? p.name : "—";
+
+  const S = ($("recS").value || "").trim();
+  const O = ($("recO").value || "").trim();
+  const A = ($("recA").value || "").trim();
+  const P = ($("recP").value || "").trim();
+
+  const block = (title, text) => `
+    <b>${title}</b><br/>
+    ${escapeHtml(text || "-").replaceAll("\n","<br/>")}<br/><br/>
+  `;
+
+  return `
+    <div class="p-head">
+      <div>
+        <h3>PRONTUÁRIO • SOAP</h3>
+        <small>Paciente: <b>${escapeHtml(pname)}</b><br/>Data: ${escapeHtml(date)}</small>
+      </div>
+      <div style="text-align:right">
+        <small><b>BTX • Prontuário</b><br/>Gerado em ${new Date().toLocaleString("pt-BR")}</small>
+      </div>
+    </div>
+
+    <div class="rx-body" style="min-height:auto">
+      ${block("S (Subjetivo)", S)}
+      ${block("O (Objetivo)", O)}
+      ${block("A (Avaliação)", A)}
+      ${block("P (Plano)", P)}
+    </div>
+
+    <div class="p-foot">
+      <div>Assinatura: ____________________________</div>
+      <div>—</div>
+    </div>
+  `;
+}
+
+$("btnPrintRecord").addEventListener("click", ()=>{
+  if (!$("recPatient").value) return alert("Selecione o paciente do prontuário.");
+  $("printPaper").innerHTML = `<div class="paper">${buildRecordPaperHTML()}</div>`.replaceAll('<div class="paper">','').replaceAll('</div>','');
+  // acima é só pra garantir que fica dentro do printPaper sem duplicar wrapper
+  $("printPaper").innerHTML = buildRecordPaperHTML();
+  window.print();
+});
+
+$("btnPdfRecord").addEventListener("click", ()=>{
+  if (!window.jspdf?.jsPDF) return alert("jsPDF não carregou. Abra online 1x pra cachear e depois fica offline.");
+  const pid = $("recPatient").value;
+  if (!pid) return alert("Selecione o paciente do prontuário.");
+
+  const p = patients.find(x=>x.id===pid);
+  const pname = p ? p.name : "Paciente";
+
+  const date = $("recDate").value || ymd(new Date());
+  const S = $("recS").value || "";
+  const O = $("recO").value || "";
+  const A = $("recA").value || "";
+  const P = $("recP").value || "";
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit:"pt", format:"a4" });
+
+  doc.setFont("helvetica","bold"); doc.setFontSize(14);
+  doc.text("PRONTUÁRIO • SOAP", 297, 60, { align:"center" });
+
+  doc.setFont("helvetica","normal"); doc.setFontSize(11);
+  doc.text(`Paciente: ${pname}`, 40, 90);
+  doc.text(`Data: ${date}`, 40, 108);
+
+  let y = 140;
+  const maxY = 780;
+  const blocks = [
+    ["S (Subjetivo)", S],
+    ["O (Objetivo)", O],
+    ["A (Avaliação)", A],
+    ["P (Plano)", P]
+  ];
+
+  for (const [title, text] of blocks){
+    doc.setFont("helvetica","bold");
+    doc.text(title, 40, y); y += 16;
+
+    doc.setFont("helvetica","normal");
+    const lines = (text || "-").split("\n");
+    for (const line of lines){
+      if (!line.trim()){ y += 12; continue; }
+      const wrapped = doc.splitTextToSize(line, 520);
+      for (const w of wrapped){
+        doc.text(w, 40, y); y += 16;
+        if (y > maxY){ doc.addPage(); y = 60; }
+      }
+    }
+    y += 10;
+    if (y > maxY){ doc.addPage(); y = 60; }
+  }
+
+  doc.setFontSize(10);
+  doc.text("Assinatura: ________________________________", 40, 820);
+
+  doc.save(`prontuario-${pname}-${date}.pdf`.replaceAll(" ","_"));
+});
+
+/* ==================== BACKUP / RESTORE / WIPE ==================== */
 $("btnBackup").addEventListener("click", async () => {
   const payload = await exportAll();
   downloadFile(`btx-backup-${ymd(new Date())}.json`, JSON.stringify(payload, null, 2));
@@ -555,11 +679,11 @@ $("fileRestore").addEventListener("change", async (e) => {
     await importAll(payload);
     await loadAll();
     fillPatientSelects();
-    renderCalendar();
-    renderDay();
-    $("rxPreview").innerHTML = buildRxHTML();
+    renderCalendar(); renderDay();
+    renderRxPreview();
+    renderRecordHistory();
     alert("Backup importado com sucesso.");
-  }catch(err){
+  }catch{
     alert("Falha ao importar backup. Arquivo inválido.");
   } finally {
     e.target.value = "";
@@ -567,32 +691,34 @@ $("fileRestore").addEventListener("change", async (e) => {
 });
 
 $("btnWipe").addEventListener("click", async () => {
-  if (!confirm("Tem certeza que deseja apagar TUDO? (pacientes + agenda + configs)")) return;
+  if (!confirm("Tem certeza que deseja apagar TUDO? (pacientes + agenda + prontuário + configs)")) return;
   await dbClear("patients");
   await dbClear("appointments");
+  await dbClear("records");
   await dbClear("settings");
   await loadAll();
   fillPatientSelects();
-  renderCalendar();
-  renderDay();
-  $("rxPreview").innerHTML = buildRxHTML();
+  renderCalendar(); renderDay();
+  renderRxPreview();
+  renderRecordHistory();
 });
 
-/* ------------------ START ------------------ */
+/* ==================== START ==================== */
 (async function start(){
   await bootDemoIfEmpty();
   await loadAll();
   fillPatientSelects();
 
-  // data selecionada e view do calendário
   const now = new Date();
   viewYear = now.getFullYear();
   viewMonth = now.getMonth();
   selectedDate = ymd(now);
 
+  $("rxDate").value = ymd(now);
+  $("recDate").value = ymd(now);
+
   renderCalendar();
   renderDay();
-
-  // inicia preview
-  $("rxPreview").innerHTML = buildRxHTML();
+  renderRxPreview();
+  renderRecordHistory();
 })();
