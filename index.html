@@ -1,1 +1,484 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>BTX • Prontuário + Agenda (PWA)</title>
 
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+
+  <!-- jsPDF (opcional, mas ajuda muito no PDF) -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#0b1220;
+      --panel:#101a2e;
+      --panel2:#0f1730;
+      --txt:#e9f0ff;
+      --muted:#a7b3d6;
+      --line:rgba(255,255,255,.08);
+      --accent:#3aa0ff;
+      --good:#1dd1a1;
+      --warn:#ffcc66;
+      --bad:#ff6b6b;
+      --shadow:0 10px 30px rgba(0,0,0,.35);
+      --radius:16px;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;
+      background: radial-gradient(1200px 800px at 20% 10%, rgba(58,160,255,.18), transparent 60%),
+                  radial-gradient(900px 600px at 80% 30%, rgba(29,209,161,.12), transparent 55%),
+                  var(--bg);
+      color:var(--txt);
+      min-height:100vh;
+    }
+    header{
+      position:sticky; top:0; z-index:50;
+      backdrop-filter: blur(10px);
+      background: linear-gradient(180deg, rgba(11,18,32,.92), rgba(11,18,32,.70));
+      border-bottom:1px solid var(--line);
+    }
+    .topbar{
+      max-width:1200px; margin:0 auto; padding:14px 16px;
+      display:flex; gap:12px; align-items:center; justify-content:space-between;
+    }
+    .brand{
+      display:flex; gap:10px; align-items:center;
+    }
+    .logo{
+      width:40px; height:40px; border-radius:12px;
+      background: linear-gradient(135deg, rgba(58,160,255,.95), rgba(29,209,161,.85));
+      box-shadow: var(--shadow);
+    }
+    .brand h1{font-size:16px; margin:0; letter-spacing:.4px}
+    .brand small{display:block; color:var(--muted); margin-top:2px; font-size:12px}
+    .actions{
+      display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;
+    }
+    button, .btn{
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.06);
+      color:var(--txt);
+      padding:10px 12px;
+      border-radius:12px;
+      cursor:pointer;
+      transition: transform .05s ease, background .2s ease, border-color .2s ease;
+      font-weight:650;
+      letter-spacing:.2px;
+      font-size:13px;
+    }
+    button:hover{background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.16)}
+    button:active{transform: scale(.99)}
+    .btn-accent{background: rgba(58,160,255,.18); border-color: rgba(58,160,255,.35)}
+    .btn-good{background: rgba(29,209,161,.16); border-color: rgba(29,209,161,.32)}
+    .btn-warn{background: rgba(255,204,102,.14); border-color: rgba(255,204,102,.30)}
+    .btn-bad{background: rgba(255,107,107,.14); border-color: rgba(255,107,107,.30)}
+
+    .wrap{max-width:1200px; margin:0 auto; padding:18px 16px 70px}
+    .grid{
+      display:grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap:14px;
+    }
+    @media (max-width: 980px){
+      .grid{grid-template-columns: 1fr}
+    }
+    .card{
+      background: linear-gradient(180deg, rgba(16,26,46,.92), rgba(16,26,46,.70));
+      border:1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .card .head{
+      padding:14px 14px 10px;
+      border-bottom:1px solid var(--line);
+      display:flex; justify-content:space-between; align-items:flex-start; gap:12px;
+    }
+    .card .head h2{margin:0; font-size:14px}
+    .card .head p{margin:4px 0 0; color:var(--muted); font-size:12px}
+    .card .body{padding:14px}
+    .row{display:flex; gap:10px; flex-wrap:wrap}
+    .row > *{flex:1}
+    label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
+    input, select, textarea{
+      width:100%;
+      background: rgba(255,255,255,.05);
+      color:var(--txt);
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:10px 11px;
+      outline:none;
+      font-size:13px;
+    }
+    textarea{min-height:86px; resize:vertical}
+    .hint{color:var(--muted); font-size:12px; margin-top:8px}
+    .split{display:grid; grid-template-columns: 1fr 1fr; gap:12px}
+    @media (max-width: 520px){ .split{grid-template-columns: 1fr} }
+
+    /* Calendário */
+    .cal-top{
+      display:flex; align-items:center; justify-content:space-between; gap:8px;
+      margin-bottom:10px;
+    }
+    .cal-top .title{font-weight:800; letter-spacing:.4px}
+    .cal{
+      display:grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap:8px;
+      user-select:none;
+    }
+    .dow{
+      font-size:11px; color:var(--muted);
+      text-align:center; padding:6px 0;
+    }
+    .day{
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.04);
+      border-radius:14px;
+      padding:10px;
+      min-height:64px;
+      cursor:pointer;
+      position:relative;
+      transition: background .2s ease, border-color .2s ease, transform .05s ease;
+    }
+    .day:hover{background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14)}
+    .day:active{transform: scale(.99)}
+    .day.off{opacity:.4}
+    .day.sel{
+      border-color: rgba(58,160,255,.55);
+      background: rgba(58,160,255,.12);
+      box-shadow: 0 0 0 2px rgba(58,160,255,.08) inset;
+    }
+    .day .num{font-weight:800; font-size:12px}
+    .badge{
+      position:absolute; right:10px; top:10px;
+      font-size:11px; padding:3px 8px; border-radius:999px;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.06);
+      color: var(--txt);
+    }
+    .list{
+      margin-top:12px;
+      border-top:1px dashed rgba(255,255,255,.14);
+      padding-top:12px;
+    }
+    .item{
+      border:1px solid var(--line);
+      border-radius:14px;
+      padding:10px;
+      background: rgba(255,255,255,.04);
+      display:flex; justify-content:space-between; gap:10px;
+      margin-bottom:10px;
+    }
+    .item b{display:block; font-size:13px}
+    .item small{display:block; color:var(--muted); margin-top:2px}
+    .item .mini-btns{display:flex; gap:8px; align-items:center}
+    .pill{
+      display:inline-block;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      background: rgba(255,255,255,.05);
+      color:var(--muted);
+      font-size:11px;
+      margin-left:6px;
+    }
+
+    /* Receita (preview + impressão) */
+    .rx-preview{
+      border:1px solid rgba(255,255,255,.16);
+      border-radius:16px;
+      background: rgba(255,255,255,.03);
+      padding:14px;
+      margin-top:12px;
+    }
+    .paper{
+      background:white;
+      color:#111;
+      border-radius:14px;
+      padding:18px 20px;
+      box-shadow: 0 10px 28px rgba(0,0,0,.22);
+      max-width: 820px;
+      margin: 0 auto;
+    }
+    .paper .p-head{
+      display:flex; justify-content:space-between; gap:10px; align-items:flex-start;
+      border-bottom:2px solid #111;
+      padding-bottom:10px;
+      margin-bottom:12px;
+    }
+    .paper .p-head h3{margin:0; font-size:16px}
+    .paper .p-head small{display:block; margin-top:4px; color:#444; font-size:12px; line-height:1.35}
+    .paper .rx-title{
+      text-align:center;
+      font-weight:900;
+      letter-spacing:1px;
+      margin: 8px 0 10px;
+    }
+    .paper .rx-body{
+      font-size:14px;
+      line-height:1.55;
+      white-space:pre-wrap;
+      min-height:220px;
+    }
+    .paper .p-foot{
+      margin-top:14px;
+      display:flex; justify-content:space-between; gap:10px;
+      border-top:1px solid #ddd;
+      padding-top:10px;
+      font-size:12px;
+      color:#333;
+    }
+
+    /* Modal simples */
+    .modal-back{
+      position:fixed; inset:0; background: rgba(0,0,0,.55);
+      display:none; align-items:center; justify-content:center;
+      padding:16px; z-index:999;
+    }
+    .modal{
+      width:min(740px, 100%);
+      background: linear-gradient(180deg, rgba(16,26,46,.98), rgba(16,26,46,.86));
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:18px;
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .modal .mhead{
+      padding:14px;
+      border-bottom:1px solid var(--line);
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .modal .mhead b{font-size:14px}
+    .modal .mbody{padding:14px}
+    .modal .mfoot{
+      padding:14px; border-top:1px solid var(--line);
+      display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;
+    }
+
+    /* Print: imprime só o papel da receita */
+    @media print{
+      body{background:#fff}
+      header, .wrap, .modal-back{display:none !important}
+      #printArea{display:block !important}
+      #printArea .paper{
+        box-shadow:none !important;
+        border-radius:0 !important;
+        max-width:100% !important;
+      }
+      @page{ margin: 12mm; }
+    }
+    #printArea{display:none}
+  </style>
+</head>
+
+<body>
+<header>
+  <div class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <div>
+        <h1>BTX • Prontuário + Agenda</h1>
+        <small id="statusLine">Offline-first • Memória local (IndexedDB) • Imprimir receita</small>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn-good" id="btnBackup">Exportar Backup</button>
+      <label class="btn btn-warn" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer">
+        Importar Backup
+        <input id="fileRestore" type="file" accept="application/json" style="display:none">
+      </label>
+      <button class="btn-bad" id="btnWipe">Limpar Tudo</button>
+      <button class="btn-accent" id="btnInstall" style="display:none">Instalar</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+    <!-- AGENDA -->
+    <section class="card">
+      <div class="head">
+        <div>
+          <h2>Agenda (clique no dia)</h2>
+          <p>Memória forte: fica salva no aparelho mesmo sem internet.</p>
+        </div>
+        <div class="row" style="gap:8px; justify-content:flex-end">
+          <button id="btnToday" class="btn-accent">Hoje</button>
+        </div>
+      </div>
+      <div class="body">
+        <div class="cal-top">
+          <button id="prevMonth">◀</button>
+          <div class="title" id="monthLabel">—</div>
+          <button id="nextMonth">▶</button>
+        </div>
+
+        <div class="cal" id="dowRow"></div>
+        <div class="cal" id="calGrid"></div>
+
+        <div class="list">
+          <div class="split">
+            <div>
+              <label>Dia selecionado</label>
+              <input id="selDate" type="text" readonly />
+            </div>
+            <div>
+              <label>Paciente (para agendar)</label>
+              <select id="selPatient"></select>
+            </div>
+          </div>
+
+          <div class="split" style="margin-top:10px">
+            <div>
+              <label>Hora</label>
+              <input id="apptTime" type="time" />
+            </div>
+            <div>
+              <label>Status</label>
+              <select id="apptStatus">
+                <option value="Confirmado">Confirmado</option>
+                <option value="Pendente">Pendente</option>
+                <option value="Atendido">Atendido</option>
+                <option value="Faltou">Faltou</option>
+                <option value="Remarcado">Remarcado</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="margin-top:10px">
+            <label>Observação</label>
+            <input id="apptNote" type="text" placeholder="Ex.: retorno / dor / limpeza / urgência..." />
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <button class="btn-good" id="btnAddAppt">Salvar agendamento</button>
+            <button class="btn" id="btnPrintDay">Imprimir agenda do dia</button>
+            <button class="btn" id="btnPdfDay">PDF da agenda do dia</button>
+          </div>
+
+          <div class="hint" id="dayHint">Selecione um dia pra ver os atendimentos.</div>
+          <div id="apptList"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PACIENTES + RECEITA -->
+    <section class="card">
+      <div class="head">
+        <div>
+          <h2>Pacientes + Receita</h2>
+          <p>Cadastro rápido + receita com preview real (papel).</p>
+        </div>
+        <div></div>
+      </div>
+
+      <div class="body">
+        <div class="split">
+          <div>
+            <label>Nome do paciente</label>
+            <input id="pName" placeholder="Ex.: Maria Silva" />
+          </div>
+          <div>
+            <label>Telefone</label>
+            <input id="pPhone" placeholder="Ex.: (91) 99999-0000" />
+          </div>
+        </div>
+        <div class="split" style="margin-top:10px">
+          <div>
+            <label>Data de nascimento</label>
+            <input id="pDob" type="date" />
+          </div>
+          <div>
+            <label>Documento (opcional)</label>
+            <input id="pDoc" placeholder="CPF/RG" />
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button class="btn-good" id="btnSavePatient">Salvar paciente</button>
+          <button class="btn" id="btnManagePatients">Gerenciar</button>
+        </div>
+
+        <hr style="border:0; border-top:1px solid var(--line); margin:16px 0">
+
+        <div class="split">
+          <div>
+            <label>Selecionar paciente</label>
+            <select id="rxPatient"></select>
+          </div>
+          <div>
+            <label>Data</label>
+            <input id="rxDate" type="date" />
+          </div>
+        </div>
+
+        <div style="margin-top:10px">
+          <label>Texto da receita</label>
+          <textarea id="rxText" placeholder="Ex.:
+1) Amoxicilina 500mg
+Tomar 1 cápsula de 8/8h por 7 dias.
+
+2) Ibuprofeno 600mg
+Tomar 1 comprimido de 8/8h por 3 dias."></textarea>
+          <div class="hint">Dica: deixe uma linha em branco entre medicamentos. Isso garante o “espaço” no PDF/print.</div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button class="btn-accent" id="btnPreviewRx">Atualizar preview</button>
+          <button class="btn" id="btnPrintRx">Imprimir</button>
+          <button class="btn" id="btnPdfRx">Gerar PDF</button>
+        </div>
+
+        <div class="rx-preview">
+          <div class="hint">Preview (como vai pro papel):</div>
+          <div id="rxPreview" class="paper" style="margin-top:10px"></div>
+        </div>
+
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- área escondida só pra impressão -->
+<div id="printArea">
+  <div id="printPaper" class="paper"></div>
+</div>
+
+<!-- Modal pacientes -->
+<div class="modal-back" id="modalBack">
+  <div class="modal">
+    <div class="mhead">
+      <b>Gerenciar pacientes</b>
+      <button id="btnCloseModal">✕</button>
+    </div>
+    <div class="mbody">
+      <input id="pSearch" placeholder="Buscar paciente..." />
+      <div style="margin-top:12px" id="patientList"></div>
+      <div class="hint">Você pode apagar paciente e os agendamentos ligados a ele permanecem (histórico). Se quiser apagar geral, use “Limpar Tudo”.</div>
+    </div>
+    <div class="mfoot">
+      <button class="btn" id="btnExportPatients">Exportar pacientes</button>
+      <button class="btn-bad" id="btnDeleteAllPatients">Apagar todos pacientes</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="db.js"></script>
+<script type="module" src="app.js"></script>
+
+<script>
+  // Register SW
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
+  }
+</script>
+</body>
+</html>
