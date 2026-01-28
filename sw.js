@@ -1,4 +1,4 @@
-const CACHE_NAME = "btx-agenda-v1";
+const CACHE_NAME = "btx-agenda-prontuario-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -24,13 +24,12 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  const req = e.request;
   e.respondWith(
-    caches.match(req).then((cached) => {
+    caches.match(e.request).then((cached) => {
       if (cached) return cached;
-      return fetch(req).then((resp) => {
+      return fetch(e.request).then((resp) => {
         const copy = resp.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, copy));
         return resp;
       }).catch(() => caches.match("./index.html"));
     })
