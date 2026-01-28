@@ -9,22 +9,14 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" />
 
-  <!-- jsPDF (opcional, mas ajuda muito no PDF) -->
+  <!-- jsPDF -->
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   <style>
     :root{
-      --bg:#0b1220;
-      --panel:#101a2e;
-      --panel2:#0f1730;
-      --txt:#e9f0ff;
-      --muted:#a7b3d6;
-      --line:rgba(255,255,255,.08);
-      --accent:#3aa0ff;
-      --good:#1dd1a1;
-      --warn:#ffcc66;
-      --bad:#ff6b6b;
-      --shadow:0 10px 30px rgba(0,0,0,.35);
+      --bg:#0b1220; --panel:#101a2e; --txt:#e9f0ff; --muted:#a7b3d6;
+      --line:rgba(255,255,255,.08); --accent:#3aa0ff; --good:#1dd1a1;
+      --warn:#ffcc66; --bad:#ff6b6b; --shadow:0 10px 30px rgba(0,0,0,.35);
       --radius:16px;
     }
     *{box-sizing:border-box}
@@ -47,9 +39,7 @@
       max-width:1200px; margin:0 auto; padding:14px 16px;
       display:flex; gap:12px; align-items:center; justify-content:space-between;
     }
-    .brand{
-      display:flex; gap:10px; align-items:center;
-    }
+    .brand{display:flex; gap:10px; align-items:center;}
     .logo{
       width:40px; height:40px; border-radius:12px;
       background: linear-gradient(135deg, rgba(58,160,255,.95), rgba(29,209,161,.85));
@@ -57,9 +47,7 @@
     }
     .brand h1{font-size:16px; margin:0; letter-spacing:.4px}
     .brand small{display:block; color:var(--muted); margin-top:2px; font-size:12px}
-    .actions{
-      display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;
-    }
+    .actions{display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;}
     button, .btn{
       border:1px solid var(--line);
       background: rgba(255,255,255,.06);
@@ -68,9 +56,7 @@
       border-radius:12px;
       cursor:pointer;
       transition: transform .05s ease, background .2s ease, border-color .2s ease;
-      font-weight:650;
-      letter-spacing:.2px;
-      font-size:13px;
+      font-weight:650; letter-spacing:.2px; font-size:13px;
     }
     button:hover{background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.16)}
     button:active{transform: scale(.99)}
@@ -80,14 +66,9 @@
     .btn-bad{background: rgba(255,107,107,.14); border-color: rgba(255,107,107,.30)}
 
     .wrap{max-width:1200px; margin:0 auto; padding:18px 16px 70px}
-    .grid{
-      display:grid;
-      grid-template-columns: 1.1fr .9fr;
-      gap:14px;
-    }
-    @media (max-width: 980px){
-      .grid{grid-template-columns: 1fr}
-    }
+    .grid{display:grid; grid-template-columns: 1.1fr .9fr; gap:14px;}
+    @media (max-width: 980px){ .grid{grid-template-columns: 1fr} }
+
     .card{
       background: linear-gradient(180deg, rgba(16,26,46,.92), rgba(16,26,46,.70));
       border:1px solid var(--line);
@@ -103,6 +84,7 @@
     .card .head h2{margin:0; font-size:14px}
     .card .head p{margin:4px 0 0; color:var(--muted); font-size:12px}
     .card .body{padding:14px}
+
     .row{display:flex; gap:10px; flex-wrap:wrap}
     .row > *{flex:1}
     label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
@@ -122,21 +104,10 @@
     @media (max-width: 520px){ .split{grid-template-columns: 1fr} }
 
     /* Calendário */
-    .cal-top{
-      display:flex; align-items:center; justify-content:space-between; gap:8px;
-      margin-bottom:10px;
-    }
+    .cal-top{display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px;}
     .cal-top .title{font-weight:800; letter-spacing:.4px}
-    .cal{
-      display:grid;
-      grid-template-columns: repeat(7, 1fr);
-      gap:8px;
-      user-select:none;
-    }
-    .dow{
-      font-size:11px; color:var(--muted);
-      text-align:center; padding:6px 0;
-    }
+    .cal{display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; user-select:none;}
+    .dow{font-size:11px; color:var(--muted); text-align:center; padding:6px 0;}
     .day{
       border:1px solid var(--line);
       background: rgba(255,255,255,.04);
@@ -163,11 +134,8 @@
       background: rgba(255,255,255,.06);
       color: var(--txt);
     }
-    .list{
-      margin-top:12px;
-      border-top:1px dashed rgba(255,255,255,.14);
-      padding-top:12px;
-    }
+
+    .list{margin-top:12px; border-top:1px dashed rgba(255,255,255,.14); padding-top:12px;}
     .item{
       border:1px solid var(--line);
       border-radius:14px;
@@ -190,7 +158,7 @@
       margin-left:6px;
     }
 
-    /* Receita (preview + impressão) */
+    /* Preview/papel (receita e prontuário) */
     .rx-preview{
       border:1px solid rgba(255,255,255,.16);
       border-radius:16px;
@@ -216,9 +184,7 @@
     .paper .p-head h3{margin:0; font-size:16px}
     .paper .p-head small{display:block; margin-top:4px; color:#444; font-size:12px; line-height:1.35}
     .paper .rx-title{
-      text-align:center;
-      font-weight:900;
-      letter-spacing:1px;
+      text-align:center; font-weight:900; letter-spacing:1px;
       margin: 8px 0 10px;
     }
     .paper .rx-body{
@@ -236,7 +202,7 @@
       color:#333;
     }
 
-    /* Modal simples */
+    /* Modal pacientes */
     .modal-back{
       position:fixed; inset:0; background: rgba(0,0,0,.55);
       display:none; align-items:center; justify-content:center;
@@ -262,7 +228,7 @@
       display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap;
     }
 
-    /* Print: imprime só o papel da receita */
+    /* Print: imprime só o papel */
     @media print{
       body{background:#fff}
       header, .wrap, .modal-back{display:none !important}
@@ -285,7 +251,7 @@
       <div class="logo" aria-hidden="true"></div>
       <div>
         <h1>BTX • Prontuário + Agenda</h1>
-        <small id="statusLine">Offline-first • Memória local (IndexedDB) • Imprimir receita</small>
+        <small id="statusLine">Offline-first • Memória local (IndexedDB) • PDF/Impressão</small>
       </div>
     </div>
 
@@ -314,6 +280,7 @@
           <button id="btnToday" class="btn-accent">Hoje</button>
         </div>
       </div>
+
       <div class="body">
         <div class="cal-top">
           <button id="prevMonth">◀</button>
@@ -370,17 +337,18 @@
       </div>
     </section>
 
-    <!-- PACIENTES + RECEITA -->
+    <!-- PACIENTES + RECEITA + PRONTUÁRIO -->
     <section class="card">
       <div class="head">
         <div>
-          <h2>Pacientes + Receita</h2>
-          <p>Cadastro rápido + receita com preview real (papel).</p>
+          <h2>Pacientes • Receita • Prontuário</h2>
+          <p>Cadastro rápido + receita “papel” + prontuário SOAP com histórico.</p>
         </div>
         <div></div>
       </div>
 
       <div class="body">
+        <!-- Cadastro paciente -->
         <div class="split">
           <div>
             <label>Nome do paciente</label>
@@ -391,6 +359,7 @@
             <input id="pPhone" placeholder="Ex.: (91) 99999-0000" />
           </div>
         </div>
+
         <div class="split" style="margin-top:10px">
           <div>
             <label>Data de nascimento</label>
@@ -409,9 +378,10 @@
 
         <hr style="border:0; border-top:1px solid var(--line); margin:16px 0">
 
+        <!-- Receita -->
         <div class="split">
           <div>
-            <label>Selecionar paciente</label>
+            <label>Selecionar paciente (Receita)</label>
             <select id="rxPatient"></select>
           </div>
           <div>
@@ -442,6 +412,56 @@ Tomar 1 comprimido de 8/8h por 3 dias."></textarea>
           <div id="rxPreview" class="paper" style="margin-top:10px"></div>
         </div>
 
+        <hr style="border:0; border-top:1px solid var(--line); margin:16px 0">
+
+        <!-- Prontuário SOAP -->
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+          <div>
+            <h3 style="margin:0; font-size:14px;">Prontuário (SOAP)</h3>
+            <div class="hint">Salvar = cria uma evolução com data no histórico do paciente.</div>
+          </div>
+          <div class="row" style="gap:8px; justify-content:flex-end;">
+            <button class="btn" id="btnPrintRecord">Imprimir prontuário</button>
+            <button class="btn" id="btnPdfRecord">PDF prontuário</button>
+          </div>
+        </div>
+
+        <div class="split" style="margin-top:10px">
+          <div>
+            <label>Selecionar paciente (Prontuário)</label>
+            <select id="recPatient"></select>
+          </div>
+          <div>
+            <label>Data</label>
+            <input id="recDate" type="date" />
+          </div>
+        </div>
+
+        <div style="margin-top:10px">
+          <label>S (Subjetivo)</label>
+          <textarea id="recS" placeholder="Queixa principal, história, sintomas, contexto..."></textarea>
+        </div>
+        <div style="margin-top:10px">
+          <label>O (Objetivo)</label>
+          <textarea id="recO" placeholder="Exame físico, achados, exames, sinais..."></textarea>
+        </div>
+        <div style="margin-top:10px">
+          <label>A (Avaliação)</label>
+          <textarea id="recA" placeholder="Hipóteses, diagnósticos, impressão clínica..."></textarea>
+        </div>
+        <div style="margin-top:10px">
+          <label>P (Plano)</label>
+          <textarea id="recP" placeholder="Conduta, medicações, orientações, retorno, exames..."></textarea>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button class="btn-good" id="btnSaveRecord">Salvar evolução</button>
+          <button class="btn" id="btnLoadPatientHistory">Carregar histórico</button>
+        </div>
+
+        <div class="hint" style="margin-top:10px">Histórico (últimas evoluções):</div>
+        <div id="recordList"></div>
+
       </div>
     </section>
   </div>
@@ -462,7 +482,7 @@ Tomar 1 comprimido de 8/8h por 3 dias."></textarea>
     <div class="mbody">
       <input id="pSearch" placeholder="Buscar paciente..." />
       <div style="margin-top:12px" id="patientList"></div>
-      <div class="hint">Você pode apagar paciente e os agendamentos ligados a ele permanecem (histórico). Se quiser apagar geral, use “Limpar Tudo”.</div>
+      <div class="hint">Apagar paciente não apaga agendamentos/histórico (pra não perder rastreio). Se quiser apagar tudo, use “Limpar Tudo”.</div>
     </div>
     <div class="mfoot">
       <button class="btn" id="btnExportPatients">Exportar pacientes</button>
@@ -475,7 +495,6 @@ Tomar 1 comprimido de 8/8h por 3 dias."></textarea>
 <script type="module" src="app.js"></script>
 
 <script>
-  // Register SW
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js"));
   }
