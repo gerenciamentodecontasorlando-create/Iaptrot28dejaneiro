@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 const statusLine = $("statusLine");
 const btnInstall = $("btnInstall");
 
+/* ==================== PWA Install ==================== */
 let deferredPrompt = null;
 window.addEventListener("beforeinstallprompt", (e) => {
   e.preventDefault();
@@ -18,6 +19,7 @@ btnInstall.addEventListener("click", async () => {
   btnInstall.style.display = "none";
 });
 
+/* ==================== Utils ==================== */
 function pad(n){ return String(n).padStart(2,"0"); }
 function ymd(d){
   const dt = new Date(d);
@@ -46,20 +48,30 @@ function downloadFile(filename, content, type="application/json"){
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
 }
+function ensureJsPDF(){
+  return !!window.jspdf?.jsPDF;
+}
+function ensureHtml2Canvas(){
+  return !!window.html2canvas;
+}
 
-/* ==================== DADOS ==================== */
+/* ==================== Data ==================== */
 let patients = [];
 let appointments = [];
 let records = [];
+let prof = { name:"", reg:"", phone:"", email:"", addr:"" };
 
 async function bootDemoIfEmpty(){
   const ps = await dbGetAll("patients");
   if (ps.length) return;
+
   const p1 = { id:newId(), name:"Paciente Teste", phone:"(91) 99999-0000", dob:"", doc:"", createdAt: new Date().toISOString() };
   await dbPut("patients", p1);
+
   const today = ymd(new Date());
   const a1 = { id:newId(), date: today, time:"09:00", patientId:p1.id, status:"Confirmado", note:"Consulta teste", createdAt:new Date().toISOString() };
   await dbPut("appointments", a1);
+
   const r1 = { id:newId(), patientId:p1.id, date: today, S:"Teste de prontuário", O:"-", A:"-", P:"-", createdAt:new Date().toISOString() };
   await dbPut("records", r1);
 }
@@ -74,6 +86,58 @@ async function loadAll(){
   records.sort((a,b) => (b.date+b.createdAt).localeCompare(a.date+a.createdAt));
 }
 
+/* ==================== Professional settings ==================== */
+function profLineText(){
+  const lines = [];
+  if (prof.reg) lines.push(prof.reg);
+  const contact = [prof.phone, prof.email].filter(Boolean).join(" • ");
+  if (contact) lines.push(contact);
+  if (prof.addr) lines.push(prof.addr);
+  return lines.join("\n");
+}
+function profLineHTML(){
+  return escapeHtml(profLineText()).replaceAll("\n","<br/>");
+}
+function readProfFromInputs(){
+  // GARANTE que o PDF pega o que está na tela (mesmo se o objeto prof estiver desatualizado)
+  return {
+    name: ($("proName")?.value || "").trim(),
+    reg:  ($("proReg")?.value || "").trim(),
+    phone: ($("proPhone")?.value || "").trim(),
+    email: ($("proEmail")?.value || "").trim(),
+    addr:  ($("proAddr")?.value || "").trim()
+  };
+}
+
+async function loadProfessional(){
+  const settings = await dbGetAll("settings");
+  const map = new Map(settings.map(s => [s.key, s.value]));
+  prof = {
+    name: map.get("pro_name") || "",
+    reg:  map.get("pro_reg") || "",
+    phone: map.get("pro_phone") || "",
+    email: map.get("pro_email") || "",
+    addr:  map.get("pro_addr") || ""
+  };
+
+  $("proName").value = prof.name;
+  $("proReg").value = prof.reg;
+  $("proPhone").value = prof.phone;
+  $("proEmail").value = prof.email;
+  $("proAddr").value = prof.addr;
+}
+
+async function saveProfessional(){
+  prof = readProfFromInputs();
+
+  await dbPut("settings", { key:"pro_name", value: prof.name });
+  await dbPut("settings", { key:"pro_reg", value: prof.reg });
+  await dbPut("settings", { key:"pro_phone", value: prof.phone });
+  await dbPut("settings", { key:"pro_email", value: prof.email });
+  await dbPut("settings", { key:"pro_addr", value: prof.addr });
+}
+
+/* ==================== UI fill ==================== */
 function fillPatientSelects(){
   const opts = [`<option value="">— Selecione —</option>`]
     .concat(patients.map(p => `<option value="${p.id}">${escapeHtml(p.name)}</option>`));
@@ -87,7 +151,7 @@ function fillPatientSelects(){
     : "Crie pelo menos 1 paciente para agendar, receitar e registrar prontuário.";
 }
 
-/* ==================== CALENDÁRIO / AGENDA ==================== */
+/* ==================== Calendar ==================== */
 const dowNames = ["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
 $("dowRow").innerHTML = dowNames.map(d => `<div class="dow">${d}</div>`).join("");
 
@@ -137,10 +201,9 @@ function renderCalendar(){
     cells.push({ label:d, ymd: ymd(dt), off:false });
   }
   while (cells.length % 7 !== 0){
-    const last = cells[cells.length-1];
-    const dt = new Date(last.ymd);
-    dt.setDate(dt.getDate()+1);
-    cells.push({ label: dt.getDate(), ymd: ymd(dt), off:true });
+    const last = new Date(cells[cells.length-1].ymd);
+    last.setDate(last.getDate()+1);
+    cells.push({ label:last.getDate(), ymd: ymd(last), off:true });
   }
 
   $("calGrid").innerHTML = cells.map(c => {
@@ -201,7 +264,7 @@ function renderDay(){
   });
 
   list.querySelectorAll("[data-edit]").forEach(btn => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", () => {
       const a = appointments.find(x => x.id === btn.dataset.edit);
       if (!a) return;
 
@@ -229,8 +292,7 @@ $("btnAddAppt").addEventListener("click", async () => {
   const editingId = $("btnAddAppt").dataset.editing || "";
   const appt = {
     id: editingId || newId(),
-    date: selectedDate,
-    time, patientId, status, note,
+    date: selectedDate, time, patientId, status, note,
     createdAt: new Date().toISOString()
   };
 
@@ -244,22 +306,38 @@ $("btnAddAppt").addEventListener("click", async () => {
   renderCalendar(); renderDay();
 });
 
-$("btnPrintDay").addEventListener("click", () => {
+/* ==================== Printing helpers ==================== */
+function setPrintPaper(html){
+  $("printPaper").innerHTML = html;
+}
+function printNow(html){
+  setPrintPaper(html);
+  window.print();
+}
+
+/* ==================== Agenda Print/PDF (texto) ==================== */
+function buildDayPaperHTML(){
   const dayAppts = appointments
     .filter(a => a.date === selectedDate)
     .sort((a,b) => (a.time||"").localeCompare(b.time||""));
 
-  const html = `
+  const pNow = readProfFromInputs();
+  prof = pNow;
+
+  const proName = escapeHtml(prof.name || "Profissional");
+  const proInfo = (profLineHTML() || "—");
+
+  return `
     <div class="p-head">
       <div>
-        <h3>Agenda do Dia</h3>
-        <small>${escapeHtml(humanDate(selectedDate))}<br/>Data: ${selectedDate}</small>
+        <h3>${proName}</h3>
+        <small>${proInfo}</small>
       </div>
       <div style="text-align:right">
-        <small><b>BTX • Agenda</b><br/>Gerado em ${new Date().toLocaleString("pt-BR")}</small>
+        <small><b>AGENDA DO DIA</b><br/>${escapeHtml(humanDate(selectedDate))}<br/>${selectedDate}</small>
       </div>
     </div>
-    <div class="rx-body" style="min-height:auto">
+    <div class="doc-body" style="min-height:auto">
       ${dayAppts.length ? dayAppts.map(a=>{
         const p = patients.find(x=>x.id===a.patientId);
         const pname = p ? p.name : "(Paciente removido)";
@@ -267,29 +345,41 @@ $("btnPrintDay").addEventListener("click", () => {
         return escapeHtml(line);
       }).join("<br/>") : "<i>Sem agendamentos.</i>"}
     </div>
+    <div class="p-foot">
+      <div>Gerado em ${escapeHtml(new Date().toLocaleString("pt-BR"))}</div>
+      <div>—</div>
+    </div>
   `;
-  $("printPaper").innerHTML = html;
-  window.print();
-});
+}
+
+$("btnPrintDay").addEventListener("click", () => printNow(buildDayPaperHTML()));
 
 $("btnPdfDay").addEventListener("click", () => {
-  if (!window.jspdf?.jsPDF) return alert("jsPDF não carregou. Abra online 1x pra cachear e depois fica offline.");
-
+  if (!ensureJsPDF()) return alert("jsPDF não carregou.");
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit:"pt", format:"a4" });
+
+  const pNow = readProfFromInputs();
+  prof = pNow;
+
+  const proName = prof.name || "Profissional";
+  const proInfo = profLineText() || "—";
+
+  doc.setFont("helvetica","bold"); doc.setFontSize(13);
+  doc.text(proName, 40, 60);
+
+  doc.setFont("helvetica","normal"); doc.setFontSize(10);
+  const infoLines = doc.splitTextToSize(proInfo, 520);
+  doc.text(infoLines, 40, 78);
+
+  doc.setFont("helvetica","bold"); doc.setFontSize(12);
+  doc.text(`AGENDA DO DIA — ${selectedDate}`, 40, 140);
+
+  doc.setFont("helvetica","normal"); doc.setFontSize(11);
 
   const dayAppts = appointments
     .filter(a => a.date === selectedDate)
     .sort((a,b) => (a.time||"").localeCompare(b.time||""));
-
-  doc.setFont("helvetica","bold"); doc.setFontSize(14);
-  doc.text(`Agenda do Dia — ${selectedDate}`, 40, 60);
-
-  doc.setFont("helvetica","normal"); doc.setFontSize(11);
-  doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, 40, 80);
-
-  let y = 110;
-  const maxY = 780;
 
   const lines = dayAppts.length ? dayAppts.map(a=>{
     const p = patients.find(x=>x.id===a.patientId);
@@ -297,6 +387,8 @@ $("btnPdfDay").addEventListener("click", () => {
     return `${a.time||"--:--"} — ${pname} — ${a.status||""}${a.note? " • "+a.note:""}`;
   }) : ["Sem agendamentos."];
 
+  let y = 170;
+  const maxY = 780;
   for (const line of lines){
     const wrapped = doc.splitTextToSize(line, 520);
     for (const w of wrapped){
@@ -309,7 +401,7 @@ $("btnPdfDay").addEventListener("click", () => {
   doc.save(`agenda-${selectedDate}.pdf`);
 });
 
-/* ==================== PACIENTES + MODAL ==================== */
+/* ==================== Patients ==================== */
 $("btnSavePatient").addEventListener("click", async () => {
   const name = ($("pName").value || "").trim();
   const phone = ($("pPhone").value || "").trim();
@@ -329,6 +421,7 @@ $("btnSavePatient").addEventListener("click", async () => {
   renderRxPreview();
 });
 
+/* ==================== Modal Patient Manager ==================== */
 const modalBack = $("modalBack");
 $("btnManagePatients").addEventListener("click", () => {
   modalBack.style.display = "flex";
@@ -372,7 +465,7 @@ function renderPatientManager(){
 }
 
 $("btnDeleteAllPatients").addEventListener("click", async () => {
-  if (!confirm("Apagar TODOS os pacientes? (agendamentos e prontuário ficam no histórico até você usar Limpar Tudo)")) return;
+  if (!confirm("Apagar TODOS os pacientes?")) return;
   await dbClear("patients");
   await loadAll();
   fillPatientSelects();
@@ -386,37 +479,38 @@ $("btnExportPatients").addEventListener("click", () => {
   downloadFile("pacientes-btx.json", JSON.stringify({ exportedAt: new Date().toISOString(), patients }, null, 2));
 });
 
-/* ==================== RECEITA ==================== */
+/* ==================== Receita (HTML/PAPER) ==================== */
 $("rxDate").value = ymd(new Date());
 
 function buildRxHTML(){
+  // Garante que o preview sempre usa o que está na tela
+  prof = readProfFromInputs();
+
   const patientId = $("rxPatient").value;
   const rxDate = $("rxDate").value || ymd(new Date());
   const text = ($("rxText").value || "").trim();
   const p = patients.find(x=>x.id===patientId);
   const pname = p ? p.name : "—";
 
-  // você troca depois por tela de Configurações (mas já funciona)
-  const profName = "BTX • Profissional";
-  const profInfo = "Dados do profissional (personalize depois)";
-
+  const proName = escapeHtml(prof.name || "Profissional");
+  const proInfo = profLineHTML() || "—";
   const body = text ? escapeHtml(text) : "<i>(Digite o texto da receita)</i>";
 
   return `
     <div class="p-head">
       <div>
-        <h3>${escapeHtml(profName)}</h3>
-        <small>${escapeHtml(profInfo)}</small>
+        <h3>${proName}</h3>
+        <small>${proInfo}</small>
       </div>
       <div style="text-align:right">
         <small><b>Data:</b> ${escapeHtml(rxDate)}<br/><b>Paciente:</b> ${escapeHtml(pname)}</small>
       </div>
     </div>
-    <div class="rx-title">RECEITA</div>
-    <div class="rx-body">${body}</div>
+    <div class="doc-title">RECEITA</div>
+    <div class="doc-body">${body}</div>
     <div class="p-foot">
       <div>Assinatura: ____________________________</div>
-      <div>Gerado em ${new Date().toLocaleString("pt-BR")}</div>
+      <div>Gerado em ${escapeHtml(new Date().toLocaleString("pt-BR"))}</div>
     </div>
   `;
 }
@@ -426,15 +520,59 @@ function renderRxPreview(){
 }
 
 $("btnPreviewRx").addEventListener("click", renderRxPreview);
+$("btnPrintRx").addEventListener("click", () => printNow(buildRxHTML()));
 
-$("btnPrintRx").addEventListener("click", () => {
-  $("printPaper").innerHTML = buildRxHTML();
-  window.print();
-});
+/* ==================== PDF PERFEITO (HTML -> Canvas -> PDF) ==================== */
+async function pdfFromElement(element, filename){
+  if (!ensureHtml2Canvas()) {
+    alert("html2canvas não carregou. Verifique o script no index.html.");
+    return;
+  }
+  if (!ensureJsPDF()) {
+    alert("jsPDF não carregou.");
+    return;
+  }
 
-$("btnPdfRx").addEventListener("click", () => {
-  if (!window.jspdf?.jsPDF) return alert("jsPDF não carregou. Abra online 1x pra cachear e depois fica offline.");
+  // força o preview a estar atualizado e completo
+  renderRxPreview();
 
+  const { jsPDF } = window.jspdf;
+
+  // captura o elemento com qualidade alta
+  const canvas = await window.html2canvas(element, {
+    scale: 2.2,
+    useCORS: true,
+    backgroundColor: "#ffffff",
+    logging: false
+  });
+
+  const imgData = canvas.toDataURL("image/png", 1.0);
+
+  const pdf = new jsPDF({ unit:"pt", format:"a4" });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+
+  // margens
+  const margin = 36; // ~12mm
+  const maxW = pageW - margin*2;
+  const maxH = pageH - margin*2;
+
+  // proporção
+  const imgW = canvas.width;
+  const imgH = canvas.height;
+  const ratio = Math.min(maxW / imgW, maxH / imgH);
+
+  const drawW = imgW * ratio;
+  const drawH = imgH * ratio;
+
+  const x = (pageW - drawW)/2;
+  const y = margin;
+
+  pdf.addImage(imgData, "PNG", x, y, drawW, drawH, undefined, "FAST");
+  pdf.save(filename);
+}
+
+$("btnPdfRx").addEventListener("click", async () => {
   const patientId = $("rxPatient").value;
   const rxDate = $("rxDate").value || ymd(new Date());
   const text = ($("rxText").value || "").trim();
@@ -445,47 +583,17 @@ $("btnPdfRx").addEventListener("click", () => {
   const p = patients.find(x=>x.id===patientId);
   const pname = p ? p.name : "Paciente";
 
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit:"pt", format:"a4" });
-
-  doc.setFont("helvetica","bold"); doc.setFontSize(14);
-  doc.text("RECEITA", 297, 70, { align:"center" });
-
-  doc.setFont("helvetica","normal"); doc.setFontSize(11);
-  doc.text(`Paciente: ${pname}`, 40, 100);
-  doc.text(`Data: ${rxDate}`, 40, 118);
-
-  let y = 150;
-  const maxY = 780;
-
-  // preserva linhas em branco
-  const lines = text.split("\n");
-  for (const raw of lines){
-    const line = raw.trimEnd();
-    if (!line){
-      y += 14;
-      continue;
-    }
-    const wrapped = doc.splitTextToSize(line, 520);
-    for (const w of wrapped){
-      doc.text(w, 40, y);
-      y += 16;
-      if (y > maxY){ doc.addPage(); y = 60; }
-    }
-  }
-
-  doc.setFontSize(10);
-  doc.text("Assinatura: ________________________________", 40, 820);
-
-  doc.save(`receita-${pname}-${rxDate}.pdf`.replaceAll(" ","_"));
+  // Gera PDF do preview (igualzinho)
+  await pdfFromElement($("rxPreview"), `receita-${pname}-${rxDate}.pdf`.replaceAll(" ","_"));
 });
 
-/* ==================== PRONTUÁRIO (SOAP) ==================== */
+/* ==================== Prontuário SOAP ==================== */
 $("recDate").value = ymd(new Date());
 
 function renderRecordHistory(){
   const pid = $("recPatient").value || "";
   const box = $("recordList");
+
   const filtered = records
     .filter(r => r.patientId === pid)
     .sort((a,b)=> (b.date+b.createdAt).localeCompare(a.date+a.createdAt))
@@ -558,11 +666,17 @@ $("btnSaveRecord").addEventListener("click", async ()=>{
   alert("Evolução salva.");
 });
 
+/* Impressão prontuário segue HTML */
 function buildRecordPaperHTML(){
+  prof = readProfFromInputs();
+
   const pid = $("recPatient").value || "";
   const date = $("recDate").value || ymd(new Date());
   const p = patients.find(x=>x.id===pid);
   const pname = p ? p.name : "—";
+
+  const proName = escapeHtml(prof.name || "Profissional");
+  const proInfo = profLineHTML() || "—";
 
   const S = ($("recS").value || "").trim();
   const O = ($("recO").value || "").trim();
@@ -577,94 +691,45 @@ function buildRecordPaperHTML(){
   return `
     <div class="p-head">
       <div>
-        <h3>PRONTUÁRIO • SOAP</h3>
-        <small>Paciente: <b>${escapeHtml(pname)}</b><br/>Data: ${escapeHtml(date)}</small>
+        <h3>${proName}</h3>
+        <small>${proInfo}</small>
       </div>
       <div style="text-align:right">
-        <small><b>BTX • Prontuário</b><br/>Gerado em ${new Date().toLocaleString("pt-BR")}</small>
+        <small><b>PRONTUÁRIO • SOAP</b><br/>Paciente: <b>${escapeHtml(pname)}</b><br/>Data: ${escapeHtml(date)}</small>
       </div>
     </div>
-
-    <div class="rx-body" style="min-height:auto">
+    <div class="doc-body" style="min-height:auto">
       ${block("S (Subjetivo)", S)}
       ${block("O (Objetivo)", O)}
       ${block("A (Avaliação)", A)}
       ${block("P (Plano)", P)}
     </div>
-
     <div class="p-foot">
       <div>Assinatura: ____________________________</div>
-      <div>—</div>
+      <div>Gerado em ${escapeHtml(new Date().toLocaleString("pt-BR"))}</div>
     </div>
   `;
 }
 
 $("btnPrintRecord").addEventListener("click", ()=>{
   if (!$("recPatient").value) return alert("Selecione o paciente do prontuário.");
-  $("printPaper").innerHTML = `<div class="paper">${buildRecordPaperHTML()}</div>`.replaceAll('<div class="paper">','').replaceAll('</div>','');
-  // acima é só pra garantir que fica dentro do printPaper sem duplicar wrapper
-  $("printPaper").innerHTML = buildRecordPaperHTML();
-  window.print();
+  printNow(buildRecordPaperHTML());
 });
 
-$("btnPdfRecord").addEventListener("click", ()=>{
-  if (!window.jspdf?.jsPDF) return alert("jsPDF não carregou. Abra online 1x pra cachear e depois fica offline.");
+/* PDF prontuário pode ser igual ao HTML também (perfeito) */
+$("btnPdfRecord").addEventListener("click", async ()=>{
+  if (!$("recPatient").value) return alert("Selecione o paciente do prontuário.");
+  // cria um preview temporário usando o printPaper (sem mexer no UI)
+  $("printPaper").innerHTML = buildRecordPaperHTML();
   const pid = $("recPatient").value;
-  if (!pid) return alert("Selecione o paciente do prontuário.");
-
   const p = patients.find(x=>x.id===pid);
   const pname = p ? p.name : "Paciente";
-
   const date = $("recDate").value || ymd(new Date());
-  const S = $("recS").value || "";
-  const O = $("recO").value || "";
-  const A = $("recA").value || "";
-  const P = $("recP").value || "";
-
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit:"pt", format:"a4" });
-
-  doc.setFont("helvetica","bold"); doc.setFontSize(14);
-  doc.text("PRONTUÁRIO • SOAP", 297, 60, { align:"center" });
-
-  doc.setFont("helvetica","normal"); doc.setFontSize(11);
-  doc.text(`Paciente: ${pname}`, 40, 90);
-  doc.text(`Data: ${date}`, 40, 108);
-
-  let y = 140;
-  const maxY = 780;
-  const blocks = [
-    ["S (Subjetivo)", S],
-    ["O (Objetivo)", O],
-    ["A (Avaliação)", A],
-    ["P (Plano)", P]
-  ];
-
-  for (const [title, text] of blocks){
-    doc.setFont("helvetica","bold");
-    doc.text(title, 40, y); y += 16;
-
-    doc.setFont("helvetica","normal");
-    const lines = (text || "-").split("\n");
-    for (const line of lines){
-      if (!line.trim()){ y += 12; continue; }
-      const wrapped = doc.splitTextToSize(line, 520);
-      for (const w of wrapped){
-        doc.text(w, 40, y); y += 16;
-        if (y > maxY){ doc.addPage(); y = 60; }
-      }
-    }
-    y += 10;
-    if (y > maxY){ doc.addPage(); y = 60; }
-  }
-
-  doc.setFontSize(10);
-  doc.text("Assinatura: ________________________________", 40, 820);
-
-  doc.save(`prontuario-${pname}-${date}.pdf`.replaceAll(" ","_"));
+  await pdfFromElement($("printPaper"), `prontuario-${pname}-${date}.pdf`.replaceAll(" ","_"));
+  $("printPaper").innerHTML = "";
 });
 
-/* ==================== BACKUP / RESTORE / WIPE ==================== */
+/* ==================== Backup/Restore/Wipe ==================== */
 $("btnBackup").addEventListener("click", async () => {
   const payload = await exportAll();
   downloadFile(`btx-backup-${ymd(new Date())}.json`, JSON.stringify(payload, null, 2));
@@ -678,6 +743,7 @@ $("fileRestore").addEventListener("change", async (e) => {
     const payload = JSON.parse(text);
     await importAll(payload);
     await loadAll();
+    await loadProfessional();
     fillPatientSelects();
     renderCalendar(); renderDay();
     renderRxPreview();
@@ -691,16 +757,32 @@ $("fileRestore").addEventListener("change", async (e) => {
 });
 
 $("btnWipe").addEventListener("click", async () => {
-  if (!confirm("Tem certeza que deseja apagar TUDO? (pacientes + agenda + prontuário + configs)")) return;
+  if (!confirm("Tem certeza que deseja apagar TUDO?")) return;
   await dbClear("patients");
   await dbClear("appointments");
   await dbClear("records");
   await dbClear("settings");
   await loadAll();
+  prof = { name:"", reg:"", phone:"", email:"", addr:"" };
   fillPatientSelects();
   renderCalendar(); renderDay();
   renderRxPreview();
   renderRecordHistory();
+  await loadProfessional().catch(()=>{});
+});
+
+/* ==================== Professional UI binds ==================== */
+$("btnSavePro").addEventListener("click", async () => {
+  await saveProfessional();
+  renderRxPreview();
+  renderCalendar(); renderDay();
+  renderRecordHistory();
+  alert("Dados do profissional salvos.");
+});
+$("btnLoadPro").addEventListener("click", async () => {
+  await loadProfessional();
+  renderRxPreview();
+  alert("Dados do profissional carregados.");
 });
 
 /* ==================== START ==================== */
@@ -716,6 +798,8 @@ $("btnWipe").addEventListener("click", async () => {
 
   $("rxDate").value = ymd(now);
   $("recDate").value = ymd(now);
+
+  await loadProfessional().catch(()=>{});
 
   renderCalendar();
   renderDay();
